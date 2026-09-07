@@ -1,0 +1,34 @@
+FROM node:20-bookworm-slim
+WORKDIR /app
+
+# Bootstrap a Python toolchain with uv (apt/deb.debian.org is blocked in this
+# pod, but pypi.org / github.com are reachable). Used for the OCR feature.
+RUN node -e "const https=require('https');const fs=require('fs');const url='https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz';function dl(u,d){https.get(u,{headers:{Accept:'application/octet-stream'}},r=>{if(r.statusCode>=300&&r.statusCode<400&&r.headers.location&&d<5){r.resume();dl(new URL(r.headers.location,u).href,d+1);return;}if(r.statusCode!==200){console.error('status '+r.statusCode);process.exit(1);}const f=fs.createWriteStream('/tmp/uv.tar.gz');r.pipe(f);f.on('finish',()=>f.close());}).on('error',e=>{console.error(e);process.exit(1);});}dl(url,0);" \
+    && tar -xzf /tmp/uv.tar.gz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+    && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-gnu
+
+# Install EasyOCR runtime deps (CPU-only torch) into a dedicated venv.
+RUN uv venv /opt/ocr-venv \
+    && uv pip install --python /opt/ocr-venv/bin/python --no-cache \
+         easyocr opencv-python-headless numpy
+
+# Pre-download EasyOCR model weights (detector + english recognizer) so the
+# container can run OCR offline. The pod's Python SSL CA store can't verify
+# github.com, so we fetch via node (which uses the pod's trusted CA) and unzip
+# with Python.
+ARG OCR_MODEL_DIR=/opt/ocr-venv/lib/python3.14/site-packages/easyocr/model
+RUN node -e "const https=require('https');const fs=require('fs');const zlib=require('zlib');const {execSync}=require('child_process');const dir='${OCR_MODEL_DIR}';fs.mkdirSync(dir,{recursive:true});function dl(u,dest,depth){return new Promise((res,rej)=>{https.get(u,{headers:{Accept:'application/octet-stream'}},r=>{if(r.statusCode>=300&&r.statusCode<400&&r.headers.location&&depth<5){r.resume();dl(new URL(r.headers.location,u).href,dest,depth+1).then(res,rej);return;}if(r.statusCode!==200){rej(new Error('status '+r.statusCode));return;}const f=fs.createWriteStream(dest);r.pipe(f);f.on('finish',()=>f.close(res));f.on('error',rej);}).on('error',rej);});}(async()=>{const jobs=[['https://github.com/JaidedAI/EasyOCR/releases/download/pre-v1.1.6/craft_mlt_25k.zip','craft_mlt_25k.zip'],['https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.zip','english_g2.zip']];for(const[url,z]of jobs){const zp=dir+'/'+z;console.log('downloading',z);await dl(url,zp,0);execSync('/opt/ocr-venv/bin/python3 -c \"import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])\" '+zp+' '+dir,{stdio:'inherit'});execSync('rm -f '+zp);console.log('done',z);}})().catch(e=>{console.error(e);process.exit(1);});"
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci
+
+COPY . .
+
+RUN npx prisma generate && npm run build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx prisma migrate deploy && (npx tsx prisma/seed.ts || true) && npm start -- -H 0.0.0.0 -p 3000"]

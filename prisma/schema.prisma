@@ -1,0 +1,351 @@
+// Prisma schema for Certification Tracker
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MEMBER
+  ADMIN
+}
+
+enum AssignmentType {
+  REQUIRED
+  RECOMMENDED
+}
+
+enum AssignmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  EXEMPTED
+}
+
+enum CertificationStatus {
+  PLANNED
+  LEARNING
+  EXAM_SCHEDULED
+  CERTIFIED
+  FAILED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ExtractionSource {
+  MANUAL
+  OCR_EASYOCR
+  PDF_TEXT
+}
+
+enum AuditAction {
+  CREATE_ASSIGNMENT
+  UPDATE_ASSIGNMENT
+  EXEMPT_ASSIGNMENT
+  UPLOAD_CERTIFICATE
+  DELETE_CERTIFICATE
+  VERIFY_CERTIFICATE
+  REJECT_CERTIFICATE
+  SEND_REMINDER
+  CREATE_CERTIFICATION
+  UPDATE_CERTIFICATION
+  DISABLE_CERTIFICATION
+  SET_CERT_REWARD
+  FEATURE_RECOMMENDED_CERT
+  GRANT_GOLD
+  CLAWBACK_GOLD
+  AI_TOOL_MUTATION
+  EXTRACT_CERTIFICATE
+  CREATE_MEMBERCERT_FROM_OCR
+}
+
+enum GoldReason {
+  CERT_AWARD
+  MANUAL_ADJUSTMENT
+  CLAWBACK
+}
+
+enum AiRole {
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum AiToolStatus {
+  PROPOSED
+  CONFIRMED
+  EXECUTED
+  REJECTED
+  ERROR
+}
+
+model User {
+  id            String   @id @default(cuid())
+  entraObjectId String   @unique
+  email         String   @unique
+  displayName   String
+
+  role     UserRole @default(MEMBER)
+  isActive Boolean  @default(true)
+
+  memberCertifications MemberCertification[]
+  assignments          CertificationAssignment[] @relation("MemberAssignments")
+  auditLogs            AuditLog[]
+  remindersSent        ReminderLog[]        @relation("ReminderSentBy")
+  reminderRecipients   ReminderLog[]        @relation("ReminderRecipient")
+  exemptionsMade       CertificationAssignment[] @relation("ExemptedBy")
+  certificateFilesUploaded CertificateFile[]
+  goldTransactions     GoldTransaction[]        @relation("MemberGold")
+  goldAdjustments      GoldTransaction[]        @relation("GoldCreator")
+  aiConversations      AiConversation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Certification {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  provider       String
+  description    String?
+
+  validityMonths Int?
+
+  isActive Boolean @default(true)
+
+  memberCertifications MemberCertification[]
+  assignments          CertificationAssignment[]
+
+  isRecommendedFeatured Boolean @default(false)
+  goldReward            Int     @default(0)
+  recommendedNote       String?
+  featuredAt            DateTime?
+  featuredById          String?
+
+  goldTransactions GoldTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isRecommendedFeatured])
+}
+
+model CertificationAssignment {
+  id              String   @id @default(cuid())
+
+  memberId        String
+  member          User     @relation("MemberAssignments", fields: [memberId], references: [id])
+
+  certificationId String
+  certification   Certification @relation(fields: [certificationId], references: [id])
+
+  type     AssignmentType
+  deadline DateTime?
+
+  status AssignmentStatus @default(NOT_STARTED)
+
+  notes String?
+
+  lastReminderAt DateTime?
+  reminderCount  Int      @default(0)
+
+  exemptedAt      DateTime?
+  exemptedById    String?
+  exemptedBy      User?    @relation("ExemptedBy", fields: [exemptedById], references: [id])
+  exemptionReason String?
+
+  reminderLogs ReminderLog[]
+
+  memberCert MemberCertification?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, certificationId])
+  @@index([memberId])
+  @@index([certificationId])
+  @@index([deadline])
+  @@index([status])
+}
+
+model MemberCertification {
+  id              String   @id @default(cuid())
+
+  memberId        String
+  member          User     @relation(fields: [memberId], references: [id])
+
+  certificationId String
+  certification   Certification @relation(fields: [certificationId], references: [id])
+
+  status          CertificationStatus @default(PLANNED)
+  progressPercent Int                  @default(0)
+
+  targetExamDate DateTime?
+
+  issuedDate        DateTime?
+  expirationDate    DateTime?
+  certificateNumber String?
+
+  verificationStatus VerificationStatus @default(PENDING)
+  rejectionReason    String?
+
+  notes String?
+
+  files CertificateFile[]
+
+  assignmentId String? @unique
+  assignment CertificationAssignment? @relation(fields: [assignmentId], references: [id])
+
+  // --- OCR extraction (CR-OCR-01) ---
+  extractionSource     ExtractionSource?
+  extractionConfidence Float?
+  extractionRaw        Json?
+  extractedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, certificationId])
+  @@index([memberId])
+  @@index([certificationId])
+}
+
+model CertificateFile {
+  id                    String   @id @default(cuid())
+  memberCertificationId String?
+  memberCertification   MemberCertification? @relation(fields: [memberCertificationId], references: [id])
+
+  blobUrl     String
+  fileName    String
+  contentType String
+  sizeBytes   Int
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  extractions CertificateExtraction[]
+
+  createdAt DateTime @default(now())
+
+  @@index([memberCertificationId])
+}
+
+model ReminderLog {
+  id           String   @id @default(cuid())
+
+  memberId     String
+  member       User     @relation("ReminderRecipient", fields: [memberId], references: [id])
+
+  assignmentId String
+  assignment   CertificationAssignment @relation(fields: [assignmentId], references: [id])
+
+  sentById String
+  sentBy   User   @relation("ReminderSentBy", fields: [sentById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId])
+  @@index([assignmentId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String     @id @default(cuid())
+
+  actorId    String
+  actor      User       @relation(fields: [actorId], references: [id])
+
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  details Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model GoldTransaction {
+  id              String   @id @default(cuid())
+
+  memberId        String
+  member          User     @relation("MemberGold", fields: [memberId], references: [id])
+
+  amount          Int
+  reason          GoldReason
+
+  certificationId String?
+  certification   Certification? @relation(fields: [certificationId], references: [id])
+
+  sourceKey String? @unique
+
+  note String?
+
+  createdById String?
+  createdBy   User?   @relation("GoldCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId])
+  @@index([certificationId])
+  @@index([createdAt])
+}
+
+model AiConversation {
+  id        String      @id @default(cuid())
+
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+
+  title     String?
+  messages  AiMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role       AiRole
+  content    String
+  toolName   String?
+  toolStatus AiToolStatus?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+model CertificateExtraction {
+  id                    String   @id @default(cuid())
+  certificateFileId     String
+  certificateFile       CertificateFile @relation(fields: [certificateFileId], references: [id], onDelete: Cascade)
+  memberCertificationId String?
+  source                ExtractionSource
+  confidence            Float
+  needsReview           Boolean
+  rawJson               Json
+  createdById           String
+  createdAt             DateTime @default(now())
+
+  @@index([certificateFileId])
+  @@index([memberCertificationId])
+}

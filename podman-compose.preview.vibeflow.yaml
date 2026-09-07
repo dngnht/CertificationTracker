@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.preview.vibeflow
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:/app/prisma/dev.db
+      AUTH_ENABLE_DEV_LOGIN: "true"
+      AUTH_MICROSOFT_ENTRA_ID_ISSUER: https://login.microsoftonline.com/common/v2.0
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      EASYOCR_DOWNLOAD: "0"
+      EASYOCR_MODEL_DIR: /opt/ocr-venv/lib/python3.14/site-packages/easyocr/model
+    volumes:
+      - sqldata:/app/prisma
+    ports:
+      - "3180:3000"
+
+volumes:
+  sqldata: {}

@@ -1,0 +1,11 @@
+# Python dependencies for the EasyOCR certificate extractor (CR-OCR-01).
+#
+# Install with:
+#   pip install -r scripts/cert_ocr/requirements.txt
+#
+# NOTE: EasyOCR pulls in PyTorch (~2GB) and downloads model weights (~64MB) on
+# first run. For locked-down networks, pre-stage the model folder and set
+# EASYOCR_MODEL_DIR + EASYOCR_DOWNLOAD=0 (see .env.example).
+easyocr>=1.7.1
+opencv-python-headless>=4.9
+numpy>=1.24
