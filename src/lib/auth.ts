@@ -4,6 +4,7 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 
 import { prisma } from "@/lib/prisma";
+import { syncUserDepartmentFromEntra } from "@/features/departments/entra-sync";
 
 declare module "next-auth" {
   interface Session {
@@ -26,6 +27,8 @@ declare module "@auth/core/jwt" {
 
 /**
  * Upsert a user from identity provider attributes.
+ * Nếu bản ghi đã tồn tại nhưng là "pending" (được admin import trước),
+ * gắn entraObjectId thật để "kích hoạt" bản ghi — không tạo user thứ 2.
  */
 async function upsertUserFromIdentity(input: {
   providerAccountId: string;
@@ -56,6 +59,28 @@ async function upsertUserFromIdentity(input: {
   });
 }
 
+/**
+ * Best-effort: lấy profile department từ Microsoft Graph /me và đồng bộ.
+ * Không bao giờ làm hỏng luồng đăng nhập nếu Graph lỗi/chậm.
+ */
+async function syncEntraProfile(accessToken: string, userId: string) {
+  try {
+    const res = await fetch(
+      "https://graph.microsoft.com/v1.0/me?$select=department,jobTitle,officeLocation",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      department?: string;
+      jobTitle?: string;
+      officeLocation?: string;
+    };
+    await syncUserDepartmentFromEntra(userId, data);
+  } catch (err) {
+    console.error("Entra profile sync skipped:", err);
+  }
+}
+
 const devLoginEnabled = () =>
   process.env.AUTH_ENABLE_DEV_LOGIN === "true" || process.env.NODE_ENV !== "production";
 
@@ -66,6 +91,7 @@ export const authConfig: NextAuthConfig = {
       clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID ?? "",
       clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET ?? "",
       issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER ?? undefined,
+      authorization: { params: { scope: "openid profile email User.Read" } },
     }),
     ...(devLoginEnabled()
       ? [
@@ -95,6 +121,13 @@ export const authConfig: NextAuthConfig = {
       : []),
   ],
   callbacks: {
+    async signIn({ account, user }) {
+      if (account?.provider === "microsoft-entra-id" && account.access_token && user.id) {
+        // Fire-and-forget đồng bộ department từ Graph (best-effort).
+        void syncEntraProfile(account.access_token, user.id);
+      }
+      return true;
+    },
     async jwt({ token, user, account }) {
       if (user) {
         token.id = (user as { id: string }).id;

@@ -125,3 +125,4 @@ prisma/*.db-wal
 *.tsbuildinfo
 
 .vibeflow-preview.hash
+.preview-assets/

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Award, LayoutDashboard, LogOut, Users, BookOpen, ClipboardList, BarChart3, Trophy, Sparkles } from "lucide-react";
+import { Award, LayoutDashboard, LogOut, Users, BookOpen, ClipboardList, BarChart3, Trophy, Sparkles, Network } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/admin/certification-plan", label: "Certification Plan", icon: ClipboardList, adminOnly: true },
   { href: "/admin/members", label: "Members", icon: Users, adminOnly: true },
+  { href: "/admin/departments", label: "Departments", icon: Network, adminOnly: true },
   { href: "/admin/certifications", label: "Certifications", icon: Award, adminOnly: true },
 ];
 

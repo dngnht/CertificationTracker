@@ -3,9 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.preview.vibeflow
+      args:
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
+        NO_PROXY: ${NO_PROXY}
     env_file:
       - .env
     environment:
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
       DATABASE_URL: file:/app/prisma/dev.db
       AUTH_ENABLE_DEV_LOGIN: "true"
       AUTH_MICROSOFT_ENTRA_ID_ISSUER: https://login.microsoftonline.com/common/v2.0

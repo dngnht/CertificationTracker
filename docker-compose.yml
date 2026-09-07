@@ -1,24 +1,9 @@
+# MVP: dùng SQLite (file:./dev.db) nên KHÔNG cần container PostgreSQL.
+#
+# Chỉ cần dịch vụ này nếu bạn bật FILE_STORAGE=azure và muốn chạy emulator
+# Azure Blob Storage cục bộ (Azurite). Với FILE_STORAGE=local (mặc định MVP),
+# bạn có thể bỏ qua toàn bộ file này.
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: certtracker-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: certtracker
-      POSTGRES_PASSWORD: certtracker
-      POSTGRES_DB: certtracker
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U certtracker"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Optional local Azure Blob Storage emulator.
-  # Start it and set FILE_STORAGE=azure with the connection string below.
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
     container_name: certtracker-azurite
@@ -31,5 +16,4 @@ services:
       - azurite_data:/data
 
 volumes:
-  postgres_data:
   azurite_data:

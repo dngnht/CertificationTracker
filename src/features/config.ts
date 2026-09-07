@@ -36,6 +36,9 @@ export const config = {
   goldClawbackOnExpire: (process.env.GOLD_CLAWBACK_ON_EXPIRE ?? "false") === "true",
   goldLeaderboardEnabled: (process.env.GOLD_LEADERBOARD_ENABLED ?? "true") === "true",
 
+  // CR-DEPT-01 — Department management
+  departmentsEnabled: (process.env.FEATURE_DEPARTMENTS ?? "true") === "true",
+
   // CR-OCR-01 — OCR extraction
   ocrEnabled: (process.env.FEATURE_OCR_EXTRACTION ?? "true") === "true",
   ocrEngine: (process.env.OCR_ENGINE ?? "stub") as "easyocr" | "stub",

@@ -12,7 +12,7 @@ reminder, and the overall compliance status.
 - **Next.js 15** (App Router) + **React 19** + **TypeScript**
 - **Tailwind CSS** + **shadcn/ui**
 - **Auth.js** (next-auth v5) with **Microsoft Entra ID** (plus a dev-only login)
-- **PostgreSQL** + **Prisma**
+- **PostgreSQL + Prisma** *(MVP hiện dùng **SQLite** — `file:./dev.db`, không cần Docker)*
 - **Azure Blob Storage** (private, SAS URLs) with a local-filesystem fallback for dev
 - **Zod** validation
 - **Vitest** (unit) + **Playwright** (E2E)
@@ -37,7 +37,7 @@ No .NET, no separate backend, no microservices, no Redis, no message queues.
                                │
                     ┌──────────┴──────────┐
                     ▼                     ▼
-              PostgreSQL           Azure Blob Storage
+              SQLite (MVP)          Azure Blob Storage
 ```
 
 Core domains: **User**, **Certification**, **Certification Assignment**,
@@ -52,22 +52,24 @@ Required + deadline). Different members can have different deadlines for the sam
 ### Prerequisites
 
 - Node.js 20+
-- Docker (for PostgreSQL; optional Azurite for local blob storage)
 
 ### 1. Configure environment
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL, AUTH_SECRET, and optionally Microsoft Entra ID credentials.
+# Fill in AUTH_SECRET, and optionally Microsoft Entra ID credentials.
 ```
 
 For local development `AUTH_ENABLE_DEV_LOGIN=true` enables a login screen that lets you
 pick a seeded user (no Microsoft account needed). **Never enable it in production.**
 
-### 2. Start PostgreSQL and install
+> **MVP uses SQLite** (`DATABASE_URL="file:./dev.db"`), so no Docker/PostgreSQL is required.
+> The optional `docker-compose.yml` only runs Azurite (Azure Blob emulator) if you set
+> `FILE_STORAGE=azure`; with the default `FILE_STORAGE=local` you can ignore it.
+
+### 2. Install
 
 ```bash
-docker compose up -d
 npm install
 ```
 
@@ -260,7 +262,6 @@ OCR decision rules (confidence gating, alias matching, no-auto-verify). Run with
 E2E tests (`tests/e2e`) require a running app with a seeded DB and dev login enabled:
 
 ```bash
-docker compose up -d
 npx prisma migrate dev
 npm run db:seed
 npm run test:e2e
@@ -270,7 +271,7 @@ npm run test:e2e
 
 Deploy as a single Next.js application (e.g. Vercel) with:
 
-- Managed PostgreSQL
+- **SQLite** (MVP) or managed PostgreSQL when scaling
 - Azure Blob Storage (private container)
 - Microsoft Entra ID for auth
 - A transactional email provider for reminders

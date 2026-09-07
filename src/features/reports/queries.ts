@@ -4,7 +4,7 @@ import { enrichAssignments } from "@/features/assignments/effective";
 
 const assignmentInclude = {
   certification: { select: { code: true, name: true, provider: true } },
-  member: { select: { id: true, displayName: true, email: true } },
+  member: { select: { id: true, displayName: true, email: true, department: true } },
   memberCert: true,
 } as const;
 
@@ -13,6 +13,7 @@ export interface ReportFilters {
   certificationId?: string;
   provider?: string;
   type?: "REQUIRED" | "RECOMMENDED";
+  deptPath?: string;
   minDaysOverdue?: number;
   now?: Date;
 }
@@ -23,6 +24,7 @@ function buildWhere(filters: ReportFilters) {
   if (filters.certificationId) where.certificationId = filters.certificationId;
   if (filters.type) where.type = filters.type;
   if (filters.provider) where.certification = { provider: filters.provider };
+  if (filters.deptPath) where.member = { department: { path: { startsWith: filters.deptPath } } };
   return where;
 }
 
@@ -125,7 +127,8 @@ export async function getUpcomingDeadlines(
 export async function getExpiringCertificates(
   thresholdDays: number = config.expiringSoonDays,
   pagination: { page?: number; pageSize?: number } = {},
-  now: Date = new Date()
+  now: Date = new Date(),
+  filters: ReportFilters = {}
 ) {
   const page = pagination.page ?? 1;
   const pageSize = pagination.pageSize ?? 50;
@@ -136,10 +139,13 @@ export async function getExpiringCertificates(
       status: "CERTIFIED",
       verificationStatus: "VERIFIED",
       expirationDate: { gte: now, lte: horizon },
+      ...(filters.deptPath
+        ? { member: { department: { path: { startsWith: filters.deptPath } } } }
+        : {}),
     },
     include: {
       certification: { select: { code: true, name: true, provider: true } },
-      member: { select: { id: true, displayName: true, email: true } },
+      member: { select: { id: true, displayName: true, email: true, department: true } },
     },
     orderBy: { expirationDate: "asc" },
   });

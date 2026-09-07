@@ -1,15 +1,29 @@
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getExpiringCertificates } from "@/features/reports/queries";
+import { listActiveDepartments } from "@/features/departments/queries";
 import { config } from "@/features/config";
 import { ReportTable } from "@/components/features/report-table";
+import { ReportFilterBar } from "@/components/features/report-filter-bar";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExpiringReportPage() {
+export default async function ExpiringReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string>>;
+}) {
   await requireAdmin();
+  const sp = await searchParams;
 
-  const result = await getExpiringCertificates(config.expiringSoonDays);
+  const departments = await listActiveDepartments();
+
+  const result = await getExpiringCertificates(
+    config.expiringSoonDays,
+    {},
+    new Date(),
+    { deptPath: sp.dept }
+  );
 
   const rows = result.items.map((c) => ({
     id: c.id,
@@ -33,6 +47,15 @@ export default async function ExpiringReportPage() {
           Verified certificates expiring within the next {config.expiringSoonDays} days ({result.total}).
         </p>
       </div>
+
+      <ReportFilterBar
+        basePath="/admin/reports/expiring"
+        members={[]}
+        certifications={[]}
+        providers={[]}
+        departments={departments.map((d) => ({ value: d.path, label: d.path }))}
+        current={sp}
+      />
 
       <ReportTable
         columns={[

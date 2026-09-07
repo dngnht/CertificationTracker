@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getUpcomingDeadlines } from "@/features/reports/queries";
+import { listActiveDepartments } from "@/features/departments/queries";
 import { config } from "@/features/config";
 import { ReportTable } from "@/components/features/report-table";
 import { ReportFilterBar } from "@/components/features/report-filter-bar";
@@ -16,10 +17,11 @@ export default async function UpcomingReportPage({
   await requireAdmin();
   const sp = await searchParams;
 
-  const [members, certifications, providers] = await Promise.all([
+  const [members, certifications, providers, departments] = await Promise.all([
     prisma.user.findMany({ select: { id: true, displayName: true }, orderBy: { displayName: "asc" } }),
     prisma.certification.findMany({ select: { id: true, code: true }, orderBy: { code: "asc" } }),
     prisma.certification.findMany({ select: { provider: true }, distinct: ["provider"] }),
+    listActiveDepartments(),
   ]);
 
   const result = await getUpcomingDeadlines(
@@ -27,6 +29,7 @@ export default async function UpcomingReportPage({
       memberId: sp.memberId,
       certificationId: sp.certificationId,
       provider: sp.provider,
+      deptPath: sp.dept,
     },
     config.expiringSoonDays
   );
@@ -64,6 +67,7 @@ export default async function UpcomingReportPage({
         members={members.map((m) => ({ value: m.id, label: m.displayName }))}
         certifications={certifications.map((c) => ({ value: c.id, label: c.code }))}
         providers={providers.map((p) => ({ value: p.provider, label: p.provider }))}
+        departments={departments.map((d) => ({ value: d.path, label: d.path }))}
         current={sp}
       />
 

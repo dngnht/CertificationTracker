@@ -65,6 +65,13 @@ enum AuditAction {
   AI_TOOL_MUTATION
   EXTRACT_CERTIFICATE
   CREATE_MEMBERCERT_FROM_OCR
+  CREATE_DEPARTMENT
+  UPDATE_DEPARTMENT
+  DISABLE_DEPARTMENT
+  ASSIGN_MEMBER_DEPARTMENT
+  IMPORT_MEMBERS_CSV
+  CREATE_MEMBER
+  SYNC_DEPARTMENT_FROM_ENTRA
 }
 
 enum GoldReason {
@@ -87,14 +94,55 @@ enum AiToolStatus {
   ERROR
 }
 
+enum DepartmentSource {
+  MANUAL
+  CSV_IMPORT
+  ENTRA_SYNC
+}
+
+model Department {
+  id       String @id @default(cuid())
+
+  code     String              // đoạn cuối, VD "DEPT-1"
+  name     String              // tên hiển thị
+  path     String   @unique    // materialized path, VD "ORG/DIV-A/DEPT-1"
+  depth    Int      @default(0)
+
+  parentId String?
+  parent   Department?  @relation("DeptTree", fields: [parentId], references: [id])
+  children Department[] @relation("DeptTree")
+
+  isActive Boolean          @default(true)
+  source   DepartmentSource @default(MANUAL)
+
+  members User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([path])
+  @@index([isActive])
+}
+
 model User {
   id            String   @id @default(cuid())
-  entraObjectId String   @unique
+  entraObjectId String?  @unique   // null khi member được import trước khi login lần đầu
   email         String   @unique
   displayName   String
 
   role     UserRole @default(MEMBER)
   isActive Boolean  @default(true)
+
+  // --- Department (CR-DEPT-01) ---
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  departmentLocked Boolean    @default(false)  // manual override: Entra không ghi đè
+
+  // Field đồng bộ từ Microsoft Graph (Entra ID)
+  entraDepartmentRaw String?
+  jobTitle           String?
+  officeLocation     String?
 
   memberCertifications MemberCertification[]
   assignments          CertificationAssignment[] @relation("MemberAssignments")
@@ -109,6 +157,8 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([departmentId])
 }
 
 model Certification {

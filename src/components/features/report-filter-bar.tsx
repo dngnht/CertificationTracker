@@ -22,12 +22,14 @@ export function ReportFilterBar({
   members,
   certifications,
   providers,
+  departments,
   current,
 }: {
   basePath: string;
   members: Option[];
   certifications: Option[];
   providers: Option[];
+  departments?: Option[];
   current: Record<string, string>;
 }) {
   const router = useRouter();
@@ -54,6 +56,20 @@ export function ReportFilterBar({
           </SelectContent>
         </Select>
       </Field>
+
+      {departments && departments.length > 0 && (
+        <Field label="Department">
+          <Select value={current.dept ?? ""} onValueChange={(v) => apply({ ...current, dept: v })}>
+            <Trigger />
+            <SelectContent>
+              <SelectItem value="">All departments</SelectItem>
+              {departments.map((d) => (
+                <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
 
       <Field label="Certification">
         <Select value={current.certificationId ?? ""} onValueChange={(v) => apply({ ...current, certificationId: v })}>
