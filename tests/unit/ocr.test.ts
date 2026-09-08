@@ -5,6 +5,7 @@ import {
   normalizeCertCode,
   suggestedProgress,
   isSafeOcrVerification,
+  checkHolderMatch,
 } from "@/features/ocr/rules";
 import { StubOcrService } from "@/features/ocr/service";
 
@@ -63,5 +64,30 @@ describe("OCR never auto-verifies", () => {
     expect(isSafeOcrVerification("PENDING")).toBe(true);
     expect(isSafeOcrVerification("VERIFIED")).toBe(false);
     expect(isSafeOcrVerification("REJECTED")).toBe(false);
+  });
+});
+
+describe("checkHolderMatch (CR-CERT-003)", () => {
+  it("matches when the on-cert name equals the member display name", () => {
+    const r = checkHolderMatch("John Smith", "John Smith");
+    expect(r.matched).toBe(true);
+    expect(r.warn).toBe(false);
+  });
+
+  it("tolerates minor case/whitespace differences", () => {
+    const r = checkHolderMatch("john smith", "John Smith");
+    expect(r.matched).toBe(true);
+    expect(r.warn).toBe(false);
+  });
+
+  it("warns when the on-cert name differs from the attributed member", () => {
+    const r = checkHolderMatch("Alice Nguyen", "Bob Smith");
+    expect(r.matched).toBe(false);
+    expect(r.warn).toBe(true);
+  });
+
+  it("returns neutral (no warning) when either side is missing", () => {
+    expect(checkHolderMatch(undefined, "John Smith")).toEqual({ matched: null, warn: false, score: 0 });
+    expect(checkHolderMatch("John Smith", null)).toEqual({ matched: null, warn: false, score: 0 });
   });
 });

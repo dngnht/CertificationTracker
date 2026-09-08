@@ -107,6 +107,16 @@ class ExtractionResult:
                 "overall": round(self.overall_confidence, 3),
                 "needsReview": self.needs_review,
             },
+            "fields": {
+                "certificationCode": round(self.certification_code.confidence, 3),
+                "certificationName": round(self.certification_name.confidence, 3),
+                "provider": round(self.provider.confidence, 3),
+                "memberName": round(self.member_name.confidence, 3),
+                "memberEmail": round(self.member_email.confidence, 3),
+                "issueDate": round(self.issue_date.confidence, 3),
+                "expirationDate": round(self.expiration_date.confidence, 3),
+                "certificateNumber": round(self.certificate_number.confidence, 3),
+            },
             "warnings": self.warnings,
         }
 

@@ -1,15 +1,44 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/authz";
+import { requireSession, requireAdmin } from "@/lib/authz";
 import { wrapAction, revalidateTracker, type ActionResult } from "@/lib/server-action";
 import { logAudit } from "@/features/audit/log";
-import { createCertificationSchema, updateCertificationSchema } from "@/features/schemas";
+import {
+  createCertificationSchema,
+  updateCertificationSchema,
+  suggestCertificationsQuerySchema,
+} from "@/features/schemas";
+import { rankSimilar } from "./similarity";
+
+interface CertLike {
+  id: string;
+  code: string;
+  name: string;
+  provider: string | null;
+}
 
 export async function createCertification(input: unknown): Promise<ActionResult> {
   return wrapAction(async () => {
     const admin = await requireAdmin();
     const parsed = createCertificationSchema.parse(input);
+
+    // CR-CERT-002: duplicate guard — warn unless the admin forced it.
+    const existing = await prisma.certification.findMany({
+      select: { id: true, code: true, name: true, provider: true },
+    });
+    const similar = rankSimilar(
+      `${parsed.code} ${parsed.name}`,
+      existing,
+      (c) => ({ code: c.code, name: c.name }),
+      { threshold: 0.8, limit: 5 }
+    );
+    if (similar.length > 0 && !parsed.force) {
+      throw new Error(
+        `Cert tương tự đã tồn tại: ${similar.map((s) => s.item.code).join(", ")}. Truyền force=true để tạo mới.`
+      );
+    }
+
     await prisma.certification.create({
       data: {
         code: parsed.code,
@@ -20,6 +49,7 @@ export async function createCertification(input: unknown): Promise<ActionResult>
         goldReward: parsed.goldReward ?? 0,
         isRecommendedFeatured: parsed.isRecommendedFeatured ?? false,
         recommendedNote: parsed.recommendedNote ?? null,
+        verifyUrlPattern: parsed.verifyUrlPattern ?? null,
       },
     });
     await logAudit({
@@ -29,6 +59,27 @@ export async function createCertification(input: unknown): Promise<ActionResult>
       details: { code: parsed.code },
     });
     revalidateTracker();
+  });
+}
+
+/** Fuzzy-search the catalog (CR-CERT-002) — used by the review form dropdown. */
+export async function suggestCertifications(
+  input: unknown
+): Promise<ActionResult<CertLike[]>> {
+  return wrapAction(async () => {
+    await requireSession();
+    const parsed = suggestCertificationsQuerySchema.parse(input);
+    const all = await prisma.certification.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true, provider: true },
+    });
+    const ranked = rankSimilar(
+      parsed.query,
+      all,
+      (c) => ({ code: c.code, name: c.name }),
+      { limit: parsed.limit ?? 5, threshold: 0.3 }
+    );
+    return ranked.map((r) => r.item);
   });
 }
 
@@ -48,6 +99,7 @@ export async function updateCertification(input: unknown): Promise<ActionResult>
         ...(data.goldReward !== undefined ? { goldReward: data.goldReward ?? 0 } : {}),
         ...(data.isRecommendedFeatured !== undefined ? { isRecommendedFeatured: data.isRecommendedFeatured } : {}),
         ...(data.recommendedNote !== undefined ? { recommendedNote: data.recommendedNote ?? null } : {}),
+        ...(data.verifyUrlPattern !== undefined ? { verifyUrlPattern: data.verifyUrlPattern ?? null } : {}),
       },
     });
     await logAudit({

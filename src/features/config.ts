@@ -39,6 +39,9 @@ export const config = {
   // CR-DEPT-01 — Department management
   departmentsEnabled: (process.env.FEATURE_DEPARTMENTS ?? "true") === "true",
 
+  // CR-DEPT-02 — Department analytics & targets
+  deptAnalyticsEnabled: (process.env.FEATURE_DEPT_ANALYTICS ?? "true") === "true",
+
   // CR-OCR-01 — OCR extraction
   ocrEnabled: (process.env.FEATURE_OCR_EXTRACTION ?? "true") === "true",
   ocrEngine: (process.env.OCR_ENGINE ?? "stub") as "easyocr" | "stub",
@@ -46,6 +49,9 @@ export const config = {
   ocrReviewThreshold: Number(process.env.OCR_REVIEW_THRESHOLD ?? "0.75"),
   ocrScriptPath: process.env.OCR_SCRIPT_PATH ?? "./scripts/cert_ocr/extract.py",
   ocrServiceUrl: process.env.OCR_SERVICE_URL ?? "",
+
+  // CR-CERT-002 — review/verify/traceability
+  certReviewVerifyEnabled: (process.env.FEATURE_CERT_REVIEW_VERIFY ?? "true") === "true",
 };
 
 export const MAX_CERTIFICATE_FILE_SIZE_BYTES = config.maxCertificateFileSizeMB * 1024 * 1024;

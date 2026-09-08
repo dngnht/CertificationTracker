@@ -3,6 +3,29 @@
  * trivially unit-testable.
  */
 
+import { similarityScore } from "@/features/certifications/similarity";
+
+/** Threshold for treating the on-cert holder name as matching the attributed member. */
+export const HOLDER_MATCH_THRESHOLD = 0.72;
+
+/**
+ * Compare the holder name read from the certificate (OCR evidence) against the
+ * member the cert is being attributed to. Returns a match verdict + a warning
+ * flag. A null/absent side yields `{ matched: null, warn: false }` (no evidence
+ * to compare → do not warn).
+ */
+export function checkHolderMatch(
+  holderNameOnCert?: string | null,
+  memberDisplayName?: string | null
+): { matched: boolean | null; warn: boolean; score: number } {
+  if (!holderNameOnCert || !memberDisplayName) {
+    return { matched: null, warn: false, score: 0 };
+  }
+  const score = similarityScore(holderNameOnCert, memberDisplayName);
+  const matched = score >= HOLDER_MATCH_THRESHOLD;
+  return { matched, warn: !matched, score };
+}
+
 /**
  * Whether an extraction should auto-create a PENDING MemberCertification.
  * Requires sufficient overall confidence AND both cert + member matched.

@@ -5,6 +5,7 @@ import { requireSession, getCurrentUser } from "@/lib/authz";
 import { wrapAction, revalidateTracker, type ActionResult } from "@/lib/server-action";
 import { getFileStorage, buildStorageKey } from "@/features/files/storage";
 import { MAX_CERTIFICATE_FILE_SIZE_BYTES } from "@/features/config";
+import { sha256Hex } from "@/features/files/hash";
 
 const IMAGE_CONTENT_TYPES = ["image/png", "image/jpeg"] as const;
 
@@ -53,6 +54,8 @@ export async function completeOcrImageUpload(input: {
     if (!(await getCurrentUser())) {
       throw new Error("Session is stale. Please sign out and sign in again.");
     }
+    // CR-CERT-002: SHA-256 of the uploaded image for tamper-evidence.
+    const imageHash = sha256Hex(await getFileStorage().download(input.key));
     const file = await prisma.certificateFile.create({
       data: {
         memberCertificationId: null,
@@ -60,6 +63,7 @@ export async function completeOcrImageUpload(input: {
         fileName: input.fileName,
         contentType: input.contentType,
         sizeBytes: input.sizeBytes,
+        imageHash,
         uploadedById: user.id,
       },
     });

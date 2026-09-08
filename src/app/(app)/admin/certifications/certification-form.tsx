@@ -30,6 +30,7 @@ interface CertificationFormProps {
     goldReward: number;
     isRecommendedFeatured: boolean;
     recommendedNote: string | null;
+    verifyUrlPattern?: string | null;
   };
   trigger?: React.ReactNode;
 }
@@ -38,34 +39,49 @@ export function CertificationForm({ certification, trigger }: CertificationFormP
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [featured, setFeatured] = useState(certification?.isRecommendedFeatured ?? false);
+  const [duplicate, setDuplicate] = useState<{ message: string; payload: Record<string, unknown> } | null>(null);
   const isEdit = Boolean(certification);
 
-  async function handleSubmit(formData: FormData) {
+  async function submit(payload: Record<string, unknown>, force = false) {
     setBusy(true);
-    const payload = {
-      code: formData.get("code") as string,
-      name: formData.get("name") as string,
-      provider: formData.get("provider") as string,
-      description: (formData.get("description") as string) || null,
-      validityMonths: formData.get("validityMonths")
-        ? Number(formData.get("validityMonths"))
-        : null,
-      goldReward: formData.get("goldReward") ? Number(formData.get("goldReward")) : 0,
-      isRecommendedFeatured: featured,
-      recommendedNote: (formData.get("recommendedNote") as string) || null,
-    };
-
     const result = isEdit
       ? await updateCertification({ ...payload, id: certification!.id })
-      : await createCertification(payload);
+      : await createCertification({ ...payload, force });
 
     setBusy(false);
     if (result.ok) {
       toast.success(isEdit ? "Certification updated" : "Certification created");
       setOpen(false);
-    } else {
-      toast.error(result.error);
+      return true;
     }
+    // CR-CERT-002: surface the duplicate warning and offer to force-create.
+    if (!isEdit && result.error?.includes("Cert tương tự đã tồn tại")) {
+      setDuplicate({ message: result.error, payload });
+      return false;
+    }
+    toast.error(result.error);
+    return false;
+  }
+
+  async function handleSubmit(formData: FormData) {
+    const payload: Record<string, unknown> = {
+      code: formData.get("code") as string,
+      name: formData.get("name") as string,
+      provider: formData.get("provider") as string,
+      description: (formData.get("description") as string) || null,
+      validityMonths: formData.get("validityMonths") ? Number(formData.get("validityMonths")) : null,
+      goldReward: formData.get("goldReward") ? Number(formData.get("goldReward")) : 0,
+      isRecommendedFeatured: featured,
+      recommendedNote: (formData.get("recommendedNote") as string) || null,
+      verifyUrlPattern: (formData.get("verifyUrlPattern") as string) || null,
+    };
+    await submit(payload);
+  }
+
+  async function forceCreate() {
+    if (!duplicate) return;
+    setDuplicate(null);
+    await submit(duplicate.payload, true);
   }
 
   return (
@@ -98,6 +114,18 @@ export function CertificationForm({ certification, trigger }: CertificationFormP
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" name="description" defaultValue={certification?.description ?? ""} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="verifyUrlPattern">Verify URL pattern</Label>
+            <Input
+              id="verifyUrlPattern"
+              name="verifyUrlPattern"
+              defaultValue={certification?.verifyUrlPattern ?? ""}
+              placeholder="https://www.credly.com/badges/{credential_id}"
+            />
+            <p className="text-xs text-muted-foreground">
+              Dùng {`{credential_id}`} làm placeholder cho số hiệu chứng chỉ.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="validityMonths">Validity (months)</Label>
@@ -144,6 +172,24 @@ export function CertificationForm({ certification, trigger }: CertificationFormP
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* CR-CERT-002: duplicate warning before creating a near-identical cert */}
+      <Dialog open={Boolean(duplicate)} onOpenChange={(v) => !v && setDuplicate(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cert tương tự đã tồn tại</DialogTitle>
+            <DialogDescription>{duplicate?.message}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicate(null)} disabled={busy}>
+              Huỷ
+            </Button>
+            <Button onClick={forceCreate} disabled={busy}>
+              {busy ? "Creating..." : "Tạo mới dù vậy"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

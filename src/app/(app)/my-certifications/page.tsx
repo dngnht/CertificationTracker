@@ -21,14 +21,21 @@ const CERT_STATUS_LABELS: Record<string, string> = {
 export default async function MyCertificationsPage() {
   const user = await requireSession();
 
-  const memberCerts = await prisma.memberCertification.findMany({
-    where: { memberId: user.id },
-    include: {
-      certification: { select: { code: true, name: true, provider: true } },
-      files: true,
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  const [memberCerts, roster] = await Promise.all([
+    prisma.memberCertification.findMany({
+      where: { memberId: user.id },
+      include: {
+        certification: { select: { code: true, name: true, provider: true } },
+        files: true,
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, displayName: true, email: true },
+      orderBy: { displayName: "asc" },
+    }),
+  ]);
 
   const storage = getFileStorage();
   const fileUrls = new Map<string, string>();
@@ -47,7 +54,12 @@ export default async function MyCertificationsPage() {
         </p>
       </div>
 
-      <OcrExtractPanel />
+      <OcrExtractPanel
+        adminMode={user.role === "ADMIN"}
+        currentUserId={user.id}
+        currentUserName={user.name ?? ""}
+        members={roster.map((m) => ({ id: m.id, displayName: m.displayName, email: m.email }))}
+      />
 
       {memberCerts.length === 0 ? (
         <Card>

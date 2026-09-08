@@ -72,6 +72,14 @@ enum AuditAction {
   IMPORT_MEMBERS_CSV
   CREATE_MEMBER
   SYNC_DEPARTMENT_FROM_ENTRA
+  SUBMIT_CERTIFICATE
+  EDIT_CERTIFICATE_EXTRACTION
+  SUGGEST_CERTIFICATION
+  APPROVE_SUGGESTION
+  REJECT_SUGGESTION
+  CREATE_DEPT_TARGET
+  UPDATE_DEPT_TARGET
+  DELETE_DEPT_TARGET
 }
 
 enum GoldReason {
@@ -117,6 +125,8 @@ model Department {
 
   members User[]
 
+  certTargets DepartmentCertTarget[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -154,6 +164,8 @@ model User {
   goldTransactions     GoldTransaction[]        @relation("MemberGold")
   goldAdjustments      GoldTransaction[]        @relation("GoldCreator")
   aiConversations      AiConversation[]
+  certificationSuggestions CertificationSuggestion[] @relation("CertSuggestedBy")
+  verifiedCertifications   MemberCertification[]   @relation("CertVerifiedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -181,12 +193,78 @@ model Certification {
   featuredAt            DateTime?
   featuredById          String?
 
+  // --- CR-CERT-002: verify link pattern, VD "https://www.credly.com/badges/{credential_id}" ---
+  verifyUrlPattern String?
+
   goldTransactions GoldTransaction[]
+  deptTargets       DepartmentCertTarget[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([isRecommendedFeatured])
+}
+
+// --- CR-DEPT-02: mục tiêu số cert theo department (chỉ target được lưu; số liệu là derived) ---
+model DepartmentCertTarget {
+  id             String   @id @default(cuid())
+
+  departmentId   String
+  department     Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // Target theo 1 cert cụ thể, hoặc tổng số cert bất kỳ (certificationId = null)
+  certificationId String?
+  certification   Certification? @relation(fields: [certificationId], references: [id])
+
+  targetCount    Int
+  dueDate        DateTime?
+  note           String?
+  isActive       Boolean  @default(true)
+
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([departmentId, certificationId])
+  @@index([departmentId])
+  @@index([certificationId])
+  @@index([dueDate])
+}
+
+// --- CR-CERT-002: đề xuất cert mới chờ admin duyệt (MEMBER không tự thêm vào danh mục) ---
+model CertificationSuggestion {
+  id String @id @default(cuid())
+
+  suggestedById String
+  suggestedBy   User   @relation("CertSuggestedBy", fields: [suggestedById], references: [id])
+
+  code     String? // mã cert đề xuất (nếu OCR đọc được)
+  name     String // tên cert (bắt buộc)
+  provider String?
+
+  // Liên kết bằng chứng: đề xuất thường đi kèm 1 lần upload
+  memberCertificationId String?
+  memberCertification   MemberCertification? @relation(fields: [memberCertificationId], references: [id])
+
+  status       SuggestionStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  rejectReason String?
+
+  // Nếu admin approve → cert được tạo trong catalog, tham chiếu lại
+  approvedCertificationId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([suggestedById])
+  @@index([status])
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model CertificationAssignment {
@@ -245,12 +323,26 @@ model MemberCertification {
   expirationDate    DateTime?
   certificateNumber String?
 
+  // --- CR-CERT-002: link verify công khai (Mức 2) ---
+  verifyUrl String?
+
+  // --- CR-CERT-003: tên holder in trên cert (bằng chứng OCR) + kết quả đối chiếu ---
+  holderNameOnCert  String?
+  holderNameMatched Boolean?
+
   verificationStatus VerificationStatus @default(PENDING)
   rejectionReason    String?
+
+  // --- CR-CERT-002: ai duyệt & thời điểm duyệt (traceability) ---
+  verifiedById String?
+  verifiedBy   User?   @relation("CertVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
 
   notes String?
 
   files CertificateFile[]
+
+  suggestions CertificationSuggestion[]
 
   assignmentId String? @unique
   assignment CertificationAssignment? @relation(fields: [assignmentId], references: [id])
@@ -278,6 +370,9 @@ model CertificateFile {
   fileName    String
   contentType String
   sizeBytes   Int
+
+  // --- CR-CERT-002: SHA-256 của ảnh gốc (chống chỉnh sửa / đối chiếu khi audit) ---
+  imageHash String?
 
   uploadedById String
   uploadedBy   User   @relation(fields: [uploadedById], references: [id])

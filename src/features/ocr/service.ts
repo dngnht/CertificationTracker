@@ -35,11 +35,24 @@ export interface OcrConfidence {
   needsReview: boolean;
 }
 
+/** Per-field OCR confidence (CR-CERT-003) so the UI can highlight weak fields. */
+export interface OcrFieldConfidence {
+  certificationCode: number;
+  certificationName: number;
+  provider: number;
+  memberName: number;
+  memberEmail: number;
+  issueDate: number;
+  expirationDate: number;
+  certificateNumber: number;
+}
+
 export interface OcrExtractionResult {
   match: OcrMatch;
   certificate: OcrCertificate;
   suggested: OcrSuggested;
   confidence: OcrConfidence;
+  fieldConfidence: OcrFieldConfidence;
   warnings: string[];
 }
 
@@ -67,6 +80,16 @@ export class StubOcrService implements OcrService {
       },
       suggested: { status: "CERTIFIED", progressPercent: 100, verificationStatus: "PENDING" },
       confidence: { ocr: 0.92, overall: 0.94, needsReview: false },
+      fieldConfidence: {
+        certificationCode: 0.95,
+        certificationName: 0.9,
+        provider: 0.85,
+        memberName: 0.9,
+        memberEmail: 0.8,
+        issueDate: 0.75,
+        expirationDate: 0.7,
+        certificateNumber: 0.88,
+      },
       warnings: [],
     };
   }
@@ -183,7 +206,22 @@ function normalizeResult(raw: any): OcrExtractionResult {
       overall: Number(conf?.overall ?? 0),
       needsReview: Boolean(conf?.needsReview ?? false),
     },
+    fieldConfidence: normalizeFieldConfidence(raw?.fields),
     warnings: Array.isArray(raw?.warnings) ? raw.warnings.map(String) : [],
+  };
+}
+
+function normalizeFieldConfidence(fields: any): OcrFieldConfidence {
+  const num = (v: any): number => Number(v ?? 0);
+  return {
+    certificationCode: num(fields?.certificationCode),
+    certificationName: num(fields?.certificationName),
+    provider: num(fields?.provider),
+    memberName: num(fields?.memberName),
+    memberEmail: num(fields?.memberEmail),
+    issueDate: num(fields?.issueDate),
+    expirationDate: num(fields?.expirationDate),
+    certificateNumber: num(fields?.certificateNumber),
   };
 }
 

@@ -44,7 +44,14 @@ export function LoginForm({
 
   async function handleDevLogin(email: string) {
     setBusy(true);
-    await signIn("dev-login", { email, callbackUrl: "/dashboard" });
+    // redirect: false + window.location.href → hard reload để xoá router cache,
+    // tránh hydration mismatch (trang lỗi "blocked content") sau khi đổi session.
+    const res = await signIn("dev-login", { email, redirect: false });
+    if (res?.ok) {
+      window.location.href = "/dashboard";
+    } else {
+      setBusy(false);
+    }
   }
 
   return (

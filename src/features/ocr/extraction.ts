@@ -2,9 +2,10 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { config } from "@/features/config";
 import { getFileStorage } from "@/features/files/storage";
-import { getOcrService, type OcrExtractionResult } from "./service";
+import { getOcrService, type OcrExtractionResult, type OcrFieldConfidence } from "./service";
 import { logAudit } from "@/features/audit/log";
-import { shouldAutoCreate, normalizeCertCode, suggestedProgress } from "./rules";
+import { shouldAutoCreate, normalizeCertCode, suggestedProgress, checkHolderMatch, HOLDER_MATCH_THRESHOLD } from "./rules";
+import { similarityScore } from "@/features/certifications/similarity";
 
 export interface ExtractFileInput {
   certificateFileId: string;
@@ -26,6 +27,8 @@ export interface ExtractResult {
   certificateFileId: string;
   match: {
     certificationCode: string | null;
+    certificationName: string | null;
+    provider: string | null;
     certificationId: string | null;
     memberName: string | null;
     memberEmail: string | null;
@@ -34,6 +37,7 @@ export interface ExtractResult {
   certificate: OcrExtractionResult["certificate"];
   suggested: OcrExtractionResult["suggested"];
   confidence: OcrExtractionResult["confidence"];
+  fieldConfidence: OcrFieldConfidence;
   warnings: string[];
   needsReview: boolean;
   createdMemberCertificationId: string | null;
@@ -142,6 +146,8 @@ export async function extractCertificateFile(
     certificateFileId: file.id,
     match: {
       certificationCode: raw.match.certificationCode,
+      certificationName: raw.match.certificationName ?? null,
+      provider: raw.match.provider ?? null,
       certificationId,
       memberName,
       memberEmail,
@@ -150,6 +156,7 @@ export async function extractCertificateFile(
     certificate: raw.certificate,
     suggested: raw.suggested,
     confidence: raw.confidence,
+    fieldConfidence: raw.fieldConfidence,
     warnings,
     needsReview,
     createdMemberCertificationId,
@@ -165,21 +172,29 @@ async function resolveCertificationId(code: string | null): Promise<string | nul
 }
 
 async function resolveMemberId(email: string | null, name: string | null) {
+  const all = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, email: true, displayName: true },
+  });
+  // Email is authoritative when present (exact, case-insensitive).
   if (email) {
-    const needle = email.toLowerCase();
-    const byEmail = await prisma.user.findFirst({
-      where: { email: { equals: needle } },
-      select: { id: true, email: true, displayName: true },
-    });
+    const needle = email.trim().toLowerCase();
+    const byEmail = all.find((u) => u.email.toLowerCase() === needle);
     if (byEmail) return byEmail;
   }
+  // Name: fuzzy-match against the roster so minor OCR noise still resolves
+  // to the right member (CR-CERT-003).
   if (name) {
-    const needle = name.toLowerCase();
-    const byName = await prisma.user.findFirst({
-      where: { displayName: { equals: needle } },
-      select: { id: true, email: true, displayName: true },
-    });
-    if (byName) return byName;
+    let best: (typeof all)[number] | null = null;
+    let bestScore = 0;
+    for (const u of all) {
+      const score = similarityScore(name, u.displayName);
+      if (score > bestScore) {
+        bestScore = score;
+        best = u;
+      }
+    }
+    if (best && bestScore >= HOLDER_MATCH_THRESHOLD) return best;
   }
   return null;
 }
@@ -195,6 +210,15 @@ async function persistPendingMemberCertification(input: {
 
   const progressPercent = suggestedProgress(raw.suggested.status, raw.suggested.progressPercent);
 
+  // CR-CERT-003: snapshot the holder name read from the cert + the match verdict
+  // against the attributed member (evidence for admin verify / audit).
+  const holderNameOnCert = raw.match.memberName ?? null;
+  const member = await prisma.user.findUnique({
+    where: { id: memberId },
+    select: { displayName: true },
+  });
+  const { matched } = checkHolderMatch(holderNameOnCert, member?.displayName);
+
   const mc = await prisma.memberCertification.upsert({
     where: { memberId_certificationId: { memberId, certificationId } },
     create: {
@@ -203,6 +227,8 @@ async function persistPendingMemberCertification(input: {
       status: raw.suggested.status,
       progressPercent,
       verificationStatus: "PENDING",
+      holderNameOnCert,
+      holderNameMatched: matched,
       issuedDate: raw.certificate.issuedDate ? new Date(raw.certificate.issuedDate) : null,
       expirationDate: raw.certificate.expirationDate ? new Date(raw.certificate.expirationDate) : null,
       certificateNumber: raw.certificate.certificateNumber ?? null,
@@ -214,6 +240,8 @@ async function persistPendingMemberCertification(input: {
     update: {
       status: raw.suggested.status,
       progressPercent,
+      holderNameOnCert,
+      holderNameMatched: matched,
       // Never overwrite a VERIFIED/REJECTED state from OCR.
       ...(raw.suggested.status === "CERTIFIED" ? { verificationStatus: "PENDING" as const } : {}),
       issuedDate: raw.certificate.issuedDate ? new Date(raw.certificate.issuedDate) : undefined,
@@ -278,10 +306,20 @@ export async function extractCertificateFiles(
       failed++;
       results.push({
         certificateFileId: file.certificateFileId,
-        match: { certificationCode: null, certificationId: null, memberName: null, memberEmail: null, memberId: null },
+        match: { certificationCode: null, certificationName: null, provider: null, certificationId: null, memberName: null, memberEmail: null, memberId: null },
         certificate: { certificateNumber: null, issuedDate: null, expirationDate: null },
         suggested: { status: "PLANNED", progressPercent: 0, verificationStatus: "PENDING" },
         confidence: { ocr: 0, overall: 0, needsReview: true },
+        fieldConfidence: {
+          certificationCode: 0,
+          certificationName: 0,
+          provider: 0,
+          memberName: 0,
+          memberEmail: 0,
+          issueDate: 0,
+          expirationDate: 0,
+          certificateNumber: 0,
+        },
         warnings: [err instanceof Error ? err.message : "Extraction failed"],
         needsReview: true,
         createdMemberCertificationId: null,

@@ -2,6 +2,10 @@ import { Nav } from "@/components/features/nav";
 import { AiChat } from "@/components/features/ai-chat";
 import { requireSession } from "@/lib/authz";
 
+// Layout phụ thuộc session → luôn render server-side, tránh RSC payload bị cache
+// gây hydration mismatch sau login/logout.
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireSession();
 

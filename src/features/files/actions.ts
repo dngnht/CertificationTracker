@@ -12,6 +12,7 @@ import {
 import { verifyCertificateSchema, rejectCertificateSchema } from "@/features/schemas";
 import { canMutateMemberCertification } from "@/features/files/access";
 import { awardGoldOnVerify } from "@/features/gold/award";
+import { sha256Hex } from "@/features/files/hash";
 
 async function assertOwnerOrAdmin(memberCertificationId: string, userId: string) {
   const mc = await prisma.memberCertification.findUnique({
@@ -78,6 +79,9 @@ export async function completeCertificateUpload(input: {
       throw new Error("Session is stale. Please sign out and sign in again.");
     }
 
+    // CR-CERT-002: compute SHA-256 of the uploaded bytes for tamper-evidence.
+    const imageHash = sha256Hex(await getFileStorage().download(input.key));
+
     await prisma.$transaction([
       prisma.certificateFile.create({
         data: {
@@ -86,6 +90,7 @@ export async function completeCertificateUpload(input: {
           fileName: input.fileName,
           contentType: input.contentType,
           sizeBytes: input.sizeBytes,
+          imageHash,
           uploadedById: user.id,
         },
       }),
@@ -152,7 +157,13 @@ export async function verifyCertificate(input: unknown): Promise<ActionResult> {
     const result = await prisma.$transaction(async (tx) => {
       await tx.memberCertification.update({
         where: { id: parsed.memberCertificationId },
-        data: { verificationStatus: "VERIFIED", status: "CERTIFIED", rejectionReason: null },
+        data: {
+          verificationStatus: "VERIFIED",
+          status: "CERTIFIED",
+          rejectionReason: null,
+          verifiedById: admin.id,
+          verifiedAt: new Date(),
+        },
       });
 
       const award = await awardGoldOnVerify(tx, {

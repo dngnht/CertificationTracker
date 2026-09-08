@@ -23,7 +23,7 @@ export default async function MemberDetailPage({
   await requireAdmin();
   const { id } = await params;
 
-  const [member, certifications] = await Promise.all([
+  const [member, certifications, roster] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       include: {
@@ -35,9 +35,23 @@ export default async function MemberDetailPage({
           },
           orderBy: [{ type: "asc" }, { deadline: "asc" }],
         },
+        // Tất cả cert đã đạt (VERIFIED) — kể cả không gắn assignment.
+        memberCertifications: {
+          where: { verificationStatus: "VERIFIED" },
+          include: {
+            certification: { select: { code: true, name: true, provider: true } },
+            files: true,
+          },
+          orderBy: { issuedDate: "desc" },
+        },
       },
     }),
     prisma.certification.findMany({ where: { isActive: true }, orderBy: { code: "asc" } }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, displayName: true, email: true },
+      orderBy: { displayName: "asc" },
+    }),
   ]);
 
   if (!member) notFound();
@@ -46,11 +60,27 @@ export default async function MemberDetailPage({
   const required = enriched.filter((a) => a.type === "REQUIRED");
   const recommended = enriched.filter((a) => a.type === "RECOMMENDED");
 
+  // Tỉ lệ hoàn thành assignment (CR: plan completion).
+  const totalAssignments = enriched.length;
+  const completedAssignments = enriched.filter((a) => a.effectiveStatus === "COMPLETED").length;
+  const assignmentCompletionRate = totalAssignments
+    ? Math.round((completedAssignments / totalAssignments) * 100)
+    : 0;
+
+  const achievedCerts = member.memberCertifications ?? [];
+
   // Resolve download URLs for certificate files.
   const storage = getFileStorage();
   const fileUrls = new Map<string, string>();
   for (const a of enriched) {
     for (const f of a.memberCert?.files ?? []) {
+      if (!fileUrls.has(f.id)) {
+        fileUrls.set(f.id, await storage.getDownloadUrl(f.blobUrl));
+      }
+    }
+  }
+  for (const mc of achievedCerts) {
+    for (const f of mc.files) {
       if (!fileUrls.has(f.id)) {
         fileUrls.set(f.id, await storage.getDownloadUrl(f.blobUrl));
       }
@@ -73,9 +103,92 @@ export default async function MemberDetailPage({
       <OcrExtractPanel
         adminMode
         targetMemberId={member.id}
-        members={[{ id: member.id, displayName: member.displayName, email: member.email }]}
+        members={roster.map((m) => ({ id: m.id, displayName: m.displayName, email: m.email }))}
         certifications={certifications.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
       />
+
+      {/* Summary: plan completion + achieved certs */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Plan completion</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {completedAssignments}
+              <span className="text-sm font-normal text-muted-foreground"> / {totalAssignments} assignments</span>
+            </p>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-blue-500" style={{ width: `${assignmentCompletionRate}%` }} />
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{assignmentCompletionRate}% hoàn thành</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Certificates achieved</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{achievedCerts.length}</p>
+            <p className="text-sm text-muted-foreground">chứng chỉ đã VERIFIED</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Assigned plan</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{totalAssignments}</p>
+            <p className="text-sm text-muted-foreground">
+              {required.length} required · {recommended.length} recommended
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Certificates achieved (VERIFIED) — kể cả không gắn assignment */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Certificates Achieved ({achievedCerts.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {achievedCerts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Chưa có chứng chỉ nào được xác minh (VERIFIED).</p>
+          ) : (
+            <div className="space-y-3">
+              {achievedCerts.map((mc) => (
+                <div key={mc.id} className="rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">
+                      {mc.certification.code}{" "}
+                      <span className="text-muted-foreground">· {mc.certification.name}</span>
+                    </div>
+                    <VerificationBadge status={mc.verificationStatus} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                    <span>{mc.certification.provider}</span>
+                    {mc.issuedDate && <span>Issued: {mc.issuedDate.toLocaleDateString("en-GB")}</span>}
+                    {mc.expirationDate && <span>Expires: {mc.expirationDate.toLocaleDateString("en-GB")}</span>}
+                    {mc.certificateNumber && <span>#{mc.certificateNumber}</span>}
+                    {mc.holderNameOnCert && <span>Holder: {mc.holderNameOnCert}</span>}
+                  </div>
+                  {(mc.files ?? []).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {mc.files.map((f) => (
+                        <Button key={f.id} asChild size="sm" variant="outline">
+                          <a href={fileUrls.get(f.id)} target="_blank" rel="noreferrer">
+                            View certificate ({f.fileName})
+                          </a>
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

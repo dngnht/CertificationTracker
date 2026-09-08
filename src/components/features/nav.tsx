@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Award, LayoutDashboard, LogOut, Users, BookOpen, ClipboardList, BarChart3, Trophy, Sparkles, Network } from "lucide-react";
+import { Award, LayoutDashboard, LogOut, Users, BookOpen, ClipboardList, BarChart3, Trophy, Sparkles, Network, ShieldCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { signOut } from "next-auth/react";
+import { signOutAction } from "@/app/(app)/logout-action";
 
 interface NavItem {
   href: string;
@@ -33,7 +33,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/certification-plan", label: "Certification Plan", icon: ClipboardList, adminOnly: true },
   { href: "/admin/members", label: "Members", icon: Users, adminOnly: true },
   { href: "/admin/departments", label: "Departments", icon: Network, adminOnly: true },
+  { href: "/admin/departments/analytics", label: "Dept Analytics", icon: BarChart3, adminOnly: true },
+  { href: "/admin/departments/targets", label: "Dept Targets", icon: ClipboardList, adminOnly: true },
   { href: "/admin/certifications", label: "Certifications", icon: Award, adminOnly: true },
+  { href: "/admin/verifications", label: "Verifications", icon: ShieldCheck, adminOnly: true },
 ];
 
 const REPORT_ITEMS = [
@@ -120,7 +123,13 @@ export function Nav({ user }: { user: { name?: string | null; email?: string | n
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuLabel>{user.email}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+            <DropdownMenuItem
+              onClick={() => {
+                // Server-action signout: xoá cookie + redirect server-side,
+                // tránh router cache client giữ trang cũ sau khi đăng xuất.
+                void signOutAction();
+              }}
+            >
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </DropdownMenuItem>

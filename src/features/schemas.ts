@@ -9,10 +9,31 @@ export const createCertificationSchema = z.object({
   goldReward: z.number().int().min(0).max(1_000_000).optional().nullable(),
   isRecommendedFeatured: z.boolean().optional(),
   recommendedNote: z.string().trim().max(500).optional().nullable(),
+  // CR-CERT-002: verify link pattern, VD "https://www.credly.com/badges/{credential_id}"
+  verifyUrlPattern: z.string().trim().max(500).optional().nullable(),
+  // CR-CERT-002: skip the duplicate-warning guard (admin confirmed)
+  force: z.boolean().optional(),
 });
 
 export const updateCertificationSchema = createCertificationSchema.partial().extend({
   id: z.string().min(1),
+}).omit({ force: true });
+
+// CR-CERT-002: member đề xuất cert mới chờ admin duyệt
+export const suggestCertificationSchema = z.object({
+  code: z.string().trim().max(20).optional().nullable(),
+  name: z.string().trim().min(1, "Name is required").max(200),
+  provider: z.string().trim().max(100).optional().nullable(),
+});
+
+export const suggestCertificationsQuerySchema = z.object({
+  query: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
+export const resolveSuggestionSchema = z.object({
+  suggestionId: z.string().min(1),
+  rejectReason: z.string().trim().max(500).optional().nullable(),
 });
 
 export const assignCertificationSchema = z.object({
